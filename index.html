@@ -1,0 +1,197 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>中国34省围栏数据可视化</title>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <style>
+        body { margin: 0; padding: 20px; font-family: Arial, sans-serif; }
+        #map { height: 80vh; width: 100%; border: 1px solid #ccc; }
+        .filter-container { margin-bottom: 10px; }
+        .filter-btn {
+            margin: 5px;
+            padding: 6px 12px;
+            border: 1px solid #ddd;
+            background: #f5f5f5;
+            cursor: pointer;
+            border-radius: 4px;
+        }
+        .filter-btn.active {
+            background: #0078A8;
+            color: white;
+        }
+        .legend {
+            background: white;
+            padding: 10px;
+            border-radius: 5px;
+            box-shadow: 0 0 10px rgba(0,0,0,0.1);
+        }
+        .area-label {
+            font-size: 12px;
+            font-weight: bold;
+            text-shadow: 0 0 2px white;
+        }
+    </style>
+</head>
+<body>
+    <h1>中国34省围栏数据可视化</h1>
+    <div class="filter-container">
+        <button class="filter-btn active" data-province="all">全国</button>
+        <div id="province-buttons"></div>
+    </div>
+    <div id="map"></div>
+
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script>
+        const map = L.map('map').setView([35, 105], 4);
+        
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+            attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+        }).addTo(map);
+
+        let provinces = [];
+        let provinceLayers = {};
+        let currentProvince = 'all';
+
+        function generateRandomColor() {
+            const letters = '0123456789ABCDEF';
+            let color = '#';
+            for (let i = 0; i < 6; i++) {
+                color += letters[Math.floor(Math.random() * 16)];
+            }
+            return color;
+        }
+
+        function calculateArea(coordinates) {
+            let area = 0;
+            if (coordinates[0][0][0].length === 2) {
+                area += calculatePolygonArea(coordinates[0]);
+            } else {
+                for (let i = 0; i < coordinates.length; i++) {
+                    area += calculatePolygonArea(coordinates[i]);
+                }
+            }
+            return area;
+        }
+
+        function calculatePolygonArea(coords) {
+            let area = 0;
+            const earthRadius = 6371000;
+            for (let i = 0; i < coords.length; i++) {
+                const j = (i + 1) % coords.length;
+                const lat1 = coords[i][1] * Math.PI / 180;
+                const lon1 = coords[i][0] * Math.PI / 180;
+                const lat2 = coords[j][1] * Math.PI / 180;
+                const lon2 = coords[j][0] * Math.PI / 180;
+                area += (lon2 - lon1) * (2 + Math.sin(lat1) + Math.sin(lat2));
+            }
+            area = Math.abs(area) * earthRadius * earthRadius / 2;
+            return area;
+        }
+
+        function getCentroid(coordinates) {
+            let latSum = 0;
+            let lngSum = 0;
+            let count = 0;
+            
+            function addCoords(coords) {
+                for (let i = 0; i < coords.length; i++) {
+                    lngSum += coords[i][0];
+                    latSum += coords[i][1];
+                    count++;
+                }
+            }
+            
+            if (coordinates[0][0][0].length === 2) {
+                addCoords(coordinates[0]);
+            } else {
+                for (let i = 0; i < coordinates.length; i++) {
+                    addCoords(coordinates[i]);
+                }
+            }
+            
+            return [latSum / count, lngSum / count];
+        }
+
+        function loadProvinces() {
+            fetch('china_gis.json')
+                .then(response => response.json())
+                .then(data => {
+                    provinces = data;
+                    
+                    provinces.forEach(province => {
+                        const geoJson = JSON.parse(province.st_asgeojson);
+                        const color = generateRandomColor();
+                        const area = calculateArea(geoJson.coordinates);
+                        const centroid = getCentroid(geoJson.coordinates);
+                        
+                        const layer = L.geoJSON(geoJson, {
+                            style: {
+                                fillColor: color,
+                                color: '#333',
+                                weight: 1,
+                                fillOpacity: 0.7
+                            }
+                        }).addTo(map);
+
+                        L.marker(centroid, {
+                            icon: L.divIcon({
+                                className: 'area-label',
+                                html: `<div style="background: ${color}; padding: 2px 6px; border-radius: 3px;">${province.fence_name}<br>${(area / 1000000).toFixed(0)} km²</div>`,
+                                iconSize: [100, 40],
+                                iconAnchor: [50, 20]
+                            })
+                        }).addTo(map);
+                        
+                        provinceLayers[province.fence_name] = {
+                            layer: layer,
+                            color: color,
+                            area: area,
+                            centroid: centroid
+                        };
+                    });
+
+                    createProvinceButtons();
+                });
+        }
+
+        function createProvinceButtons() {
+            const container = document.getElementById('province-buttons');
+            provinces.forEach(province => {
+                const button = document.createElement('button');
+                button.className = 'filter-btn';
+                        button.textContent = province.fence_name;
+                        button.dataset.province = province.fence_name;
+                        button.id = `province-${province.fence_name}`;
+                button.addEventListener('click', () => selectProvince(province.fence_name));
+                container.appendChild(button);
+            });
+        }
+
+        function selectProvince(provinceName) {
+            document.querySelectorAll('.filter-btn').forEach(btn => btn.classList.remove('active'));
+            if (provinceName === 'all') {
+                document.querySelector('[data-province="all"]').classList.add('active');
+                map.setView([35, 105], 4);
+                Object.values(provinceLayers).forEach(item => {
+                    map.addLayer(item.layer);
+                });
+            } else {
+                document.querySelector(`[data-province="${provinceName}"]`).classList.add('active');
+                Object.values(provinceLayers).forEach(item => {
+                    map.removeLayer(item.layer);
+                });
+                const province = provinceLayers[provinceName];
+                map.addLayer(province.layer);
+                map.setView(province.centroid, 6);
+            }
+            currentProvince = provinceName;
+        }
+
+        document.querySelector('[data-province="all"]').addEventListener('click', () => selectProvince('all'));
+
+        loadProvinces();
+    </script>
+</body>
+</html>
