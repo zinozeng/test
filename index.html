@@ -1,105 +1,63 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="zh-CN">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>China Map</title>
+    <title>中国34省围栏数据可视化</title>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     <style>
-        #container {
-            width: 100%;
-            height: 100vh;
+        body { margin: 0; padding: 20px; font-family: Arial, sans-serif; }
+        #map { height: 80vh; width: 100%; border: 1px solid #ccc; }
+        .filter-container { margin-bottom: 10px; }
+        .filter-btn {
+            margin: 5px;
+            padding: 6px 12px;
+            border: 1px solid #ddd;
+            background: #f5f5f5;
+            cursor: pointer;
+            border-radius: 4px;
         }
-        #selector {
-            position: absolute;
-            top: 20px;
-            left: 20px;
-            z-index: 100;
+        .filter-btn.active {
+            background: #0078A8;
+            color: white;
+        }
+        .legend {
+            background: white;
+            padding: 10px;
+            border-radius: 5px;
+            box-shadow: 0 0 10px rgba(0,0,0,0.1);
+        }
+        .area-label {
+            font-size: 12px;
+            font-weight: bold;
+            color: #333;
+            background-color: rgba(255, 255, 255, 0.7);
+            border: none;
+            box-shadow: none;
+            text-align: center;
         }
     </style>
 </head>
 <body>
-    <div id="container"></div>
-    <select id="selector"></select>
+    <h1>中国34省围栏数据可视化</h1>
+    <div class="filter-container">
+        <strong>筛选省份:</strong>
+        <button class="filter-btn active" data-province="all">全国</button>
+        <div id="province-buttons" style="display: inline;"></div>
+    </div>
+    <div id="map"></div>
 
-    <script src="https://webapi.amap.com/maps?v=2.0&key=您的高德地图key"></script>
-    <script src="https://cdn.jsdelivr.net/npm/path-data-polyfill@1.0.4/path-data-polyfill.min.js"></script>
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script src="https://unpkg.com/@turf/turf@6/turf.min.js"></script>
     <script>
-        // 初始化地图
-        const map = new AMap.Map('container', {
-            zoom: 4,
-            center: [104.06, 35.67],
-            viewMode: '3D'
-        });
+        const map = L.map('map').setView([35, 105], 4);
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+            attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+        }).addTo(map);
 
-        // 加载围栏数据
-        fetch('./china_gis.json')
-            .then(response => response.json())
-            .then(data => {
-                const selector = document.getElementById('selector');
-                const allOption = document.createElement('option');
-                allOption.value = 'all';
-                allOption.textContent = '全国';
-                selector.appendChild(allOption);
-
-                data.forEach(province => {
-                    const option = document.createElement('option');
-                    option.value = province.fence_name;
-                    option.textContent = province.fence_name;
-                    selector.appendChild(option);
-
-                    const geojson = JSON.parse(province.st_asgeojson);
-                    const polygons = new AMap.GeoJSON({
-                        geoJSON: geojson,
-                        getPolygon: (geojson, lnglats) => {
-                            const area = AMap.GeometryUtil.ringArea(lnglats[0]);
-                            const polygon = new AMap.Polygon({
-                                path: lnglats,
-                                fillColor: getRandomColor(),
-                                strokeOpacity: 1,
-                                strokeColor: 'white',
-                                strokeWeight: 0.9,
-                                zIndex: 100
-                            });
-
-                            const label = new AMap.Text({
-                                text: `${province.fence_name}\n${(area / 1000000).toFixed(2)} km²`,
-                                position: polygon.getBounds().getCenter(),
-                                style: {
-                                    'background-color': 'transparent',
-                                    'border': 'none',
-                                    'color': 'black',
-                                    'font-size': '12px',
-                                    'text-align': 'center'
-                                }
-                            });
-                            map.add(label);
-                            
-                            return polygon;
-                        }
-                    });
-                    map.add(polygons);
-                });
-
-                selector.addEventListener('change', (event) => {
-                    const selectedProvince = event.target.value;
-                    if (selectedProvince === 'all') {
-                        map.setZoomAndCenter(4, [104.06, 35.67]);
-                    } else {
-                        const provinceData = data.find(p => p.fence_name === selectedProvince);
-                        const geojson = JSON.parse(provinceData.st_asgeojson);
-                        const bounds = new AMap.Bounds();
-                        const coordinates = geojson.coordinates;
-                        coordinates.forEach(polygon => {
-                            polygon.forEach(ring => {
-                                ring.forEach(point => {
-                                    bounds.extend(new AMap.LngLat(point[0], point[1]));
-                                });
-                            });
-                        });
-                        map.setBounds(bounds);
-                    }
-                });
-            });
+        let provinces = [];
+        let provinceLayers = {};
+        let currentProvince = 'all';
 
         function getRandomColor() {
             const letters = '0123456789ABCDEF';
@@ -109,6 +67,82 @@
             }
             return color;
         }
+
+        function loadProvinces() {
+            fetch('./china_gis.json')
+                .then(response => response.json())
+                .then(data => {
+                    provinces = data.map(p => {
+                        const geojson = JSON.parse(p.st_asgeojson);
+                        const color = getRandomColor();
+                        const layer = L.geoJSON(geojson, {
+                            style: {
+                                fillColor: color,
+                                weight: 1,
+                                opacity: 1,
+                                color: 'white',
+                                fillOpacity: 0.7
+                            }
+                        }).addTo(map);
+
+                        const turfPolygon = turf.multiPolygon(geojson.coordinates);
+                        const area = turf.area(turfPolygon);
+                        const centroid = turf.centroid(turfPolygon).geometry.coordinates.reverse();
+
+                        layer.bindTooltip(`${p.fence_name}<br>面积: ${(area / 1000000).toFixed(2)} km²`, {
+                            permanent: true,
+                            direction: 'center',
+                            className: 'area-label'
+                        });
+                        
+                        return {
+                            ...p,
+                            layer: layer,
+                            area: area,
+                            centroid: centroid
+                        };
+                    });
+
+                    createProvinceButtons();
+                });
+        }
+
+        function createProvinceButtons() {
+            const container = document.getElementById('province-buttons');
+            provinces.forEach(province => {
+                const button = document.createElement('button');
+                button.className = 'filter-btn';
+                        button.textContent = province.fence_name;
+                        button.dataset.province = province.fence_name;
+                        button.id = `province-${province.fence_name}`;
+                button.addEventListener('click', () => selectProvince(province.fence_name));
+                container.appendChild(button);
+            });
+        }
+
+        function selectProvince(provinceName) {
+            document.querySelectorAll('.filter-btn').forEach(btn => btn.classList.remove('active'));
+            if (provinceName === 'all') {
+                document.querySelector('[data-province="all"]').classList.add('active');
+                map.setView([35, 105], 4);
+                Object.values(provinceLayers).forEach(item => {
+                    map.addLayer(item.layer);
+                });
+            } else {
+                document.querySelector(`[data-province="${provinceName}"]`).classList.add('active');
+                Object.values(provinceLayers).forEach(item => {
+                    map.removeLayer(item.layer);
+                });
+                const province = provinceLayers[provinceName];
+                map.addLayer(province.layer);
+                map.setView(province.centroid, 6);
+            }
+            currentProvince = provinceName;
+        }
+
+        document.querySelector('[data-province="all"]').addEventListener('click', () => selectProvince('all'));
+
+        loadProvinces();
     </script>
 </body>
 </html>
