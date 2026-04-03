@@ -126,35 +126,51 @@
         }
 
         function selectProvince(provinceName) {
-            document.querySelectorAll('.filter-btn').forEach(btn => btn.classList.remove('active'));
-            
-            const backgroundStyle = {
-                fillColor: '#d3d3d3',
-                weight: 1,
-                color: '#fff',
-                fillOpacity: 0.5
-            };
+            // If the selection hasn't changed, do nothing
+            if (provinceName === currentProvince) {
+                return;
+            }
 
+            const backgroundStyle = { fillColor: '#d3d3d3', weight: 1, color: '#fff', fillOpacity: 0.5 };
+
+            // Deactivate all buttons and then activate the correct one
+            document.querySelectorAll('.filter-btn').forEach(btn => btn.classList.remove('active'));
+            document.querySelector(`[data-province="${provinceName}"]`).classList.add('active');
+
+            // --- Logic for provinceName === 'all' ---
             if (provinceName === 'all') {
-                document.querySelector('[data-province="all"]').classList.add('active');
                 map.setView([35, 105], 4);
+                // Restore all provinces to their original style
                 for (const name in provinceLayers) {
                     provinceLayers[name].layer.setStyle(provinceLayers[name].originalStyle);
                 }
-            } else {
-                document.querySelector(`[data-province="${provinceName}"]`).classList.add('active');
-                
-                for (const name in provinceLayers) {
-                    provinceLayers[name].layer.setStyle(backgroundStyle);
+            }
+            // --- Logic for selecting a specific province ---
+            else {
+                // If the previous view was 'all', grey out everything first
+                if (currentProvince === 'all') {
+                    for (const name in provinceLayers) {
+                        provinceLayers[name].layer.setStyle(backgroundStyle);
+                    }
+                } else {
+                    // Otherwise, just reset the previously selected province to the background style
+                    const previous = provinceLayers[currentProvince];
+                    if (previous) {
+                        previous.layer.setStyle(backgroundStyle);
+                    }
                 }
 
+                // Highlight the newly selected province
                 const selected = provinceLayers[provinceName];
                 if (selected) {
                     const highlightStyle = { ...selected.originalStyle, weight: 3, color: 'black' };
                     selected.layer.setStyle(highlightStyle);
+                    selected.layer.bringToFront();
                     map.setView(selected.centroid, 6);
                 }
             }
+
+            // Update the current province tracker
             currentProvince = provinceName;
         }
 
