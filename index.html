@@ -74,16 +74,16 @@
                 .then(data => {
                     provinces = data.map(p => {
                         const geojson = JSON.parse(p.st_asgeojson);
-                        const color = getRandomColor();
-                        const layer = L.geoJSON(geojson, {
-                            style: {
-                                fillColor: color,
-                                weight: 1,
-                                opacity: 1,
-                                color: 'white',
-                                fillOpacity: 0.7
-                            }
-                        }).addTo(map);
+                        const randomColor = getRandomColor();
+                        const originalStyle = {
+                            fillColor: randomColor,
+                            weight: 1,
+                            opacity: 1,
+                            color: 'white',
+                            fillOpacity: 0.7
+                        };
+
+                        const layer = L.geoJSON(geojson, { style: originalStyle }).addTo(map);
 
                         const turfPolygon = turf.multiPolygon(geojson.coordinates);
                         const area = turf.area(turfPolygon);
@@ -95,12 +95,17 @@
                             className: 'area-label'
                         });
                         
-                        return {
+                        const provinceData = {
                             ...p,
                             layer: layer,
                             area: area,
-                            centroid: centroid
+                            centroid: centroid,
+                            originalStyle: originalStyle
                         };
+
+                        provinceLayers[p.fence_name] = provinceData;
+
+                        return provinceData;
                     });
 
                     createProvinceButtons();
@@ -122,20 +127,33 @@
 
         function selectProvince(provinceName) {
             document.querySelectorAll('.filter-btn').forEach(btn => btn.classList.remove('active'));
+            
+            const backgroundStyle = {
+                fillColor: '#d3d3d3',
+                weight: 1,
+                color: '#fff',
+                fillOpacity: 0.5
+            };
+
             if (provinceName === 'all') {
                 document.querySelector('[data-province="all"]').classList.add('active');
                 map.setView([35, 105], 4);
-                Object.values(provinceLayers).forEach(item => {
-                    map.addLayer(item.layer);
-                });
+                for (const name in provinceLayers) {
+                    provinceLayers[name].layer.setStyle(provinceLayers[name].originalStyle);
+                }
             } else {
                 document.querySelector(`[data-province="${provinceName}"]`).classList.add('active');
-                Object.values(provinceLayers).forEach(item => {
-                    map.removeLayer(item.layer);
-                });
-                const province = provinceLayers[provinceName];
-                map.addLayer(province.layer);
-                map.setView(province.centroid, 6);
+                
+                for (const name in provinceLayers) {
+                    provinceLayers[name].layer.setStyle(backgroundStyle);
+                }
+
+                const selected = provinceLayers[provinceName];
+                if (selected) {
+                    const highlightStyle = { ...selected.originalStyle, weight: 3, color: 'black' };
+                    selected.layer.setStyle(highlightStyle);
+                    map.setView(selected.centroid, 6);
+                }
             }
             currentProvince = provinceName;
         }
